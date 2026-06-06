@@ -1,0 +1,26 @@
+# Local Visual Studio state
+.vs/
+*.vcxproj.user
+
+# Build outputs
+x64/
+Win32/
+Debug/
+Release/
+bin/
+obj/
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.iobj
+*.ipdb
+*.lib
+*.exp
+*.dll
+*.asi
+*.log
+
+# Agent-local contributor instructions
+AGENTS.md
