@@ -51,7 +51,7 @@ Data = 90 90 90
 
 `Offsets` accepts one or more comma-separated offsets. By default offsets are RVAs relative to the target executable base address. Set `Raw = true` when using file offsets from tools such as HxD or 010 Editor.
 
-Patch data always receives a trailing `00` byte unless it already ends with `00`. For example, `Data = 90 90` is written as `90 90 00`, while `Data = 90 90 00` is written unchanged.
+String data always receives a trailing `00` byte unless it already ends with `00`. Direct hex patches write exactly the bytes listed, so `Data = 90 90` writes only `90 90`.
 
 ## Patch Types
 
@@ -89,6 +89,8 @@ Data = data\payload.bin
 When `Pointer = true`, HexPatcher allocates new memory in the current process, writes `Data` there, then writes the allocated virtual address at each offset.
 
 This writes an absolute in-memory pointer, not an RVA, relative pointer, or file offset. The pointer size follows the ASI build architecture: 4 bytes for x86 builds and 8 bytes for x64 builds. Use this only when the target executable expects a normal absolute pointer at the patched offset.
+
+Pointer patch data is null-terminated automatically unless it already ends with `00`.
 
 ```ini
 [MoveString]

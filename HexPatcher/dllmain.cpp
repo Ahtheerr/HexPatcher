@@ -245,7 +245,7 @@ std::vector<std::uint8_t> EncodeString(const std::string& value, const std::map<
     return output;
 }
 
-std::optional<std::vector<std::uint8_t>> BuildData(const IniSection& section, const PatchContext& context)
+std::optional<std::vector<std::uint8_t>> BuildData(const IniSection& section, const PatchContext& context, bool pointer)
 {
     const auto type = GetValue(section, "Type");
     const auto data = GetValue(section, "Data");
@@ -256,13 +256,16 @@ std::optional<std::vector<std::uint8_t>> BuildData(const IniSection& section, co
 
     const auto lowerType = ToLower(*type);
     std::optional<std::vector<std::uint8_t>> bytes;
+    bool shouldNullTerminate = false;
     if (lowerType == "string")
     {
         bytes = EncodeString(*data, context.font);
+        shouldNullTerminate = true;
     }
     else if (lowerType == "hex")
     {
         bytes = ParseHexBytes(*data);
+        shouldNullTerminate = pointer;
     }
     else if (lowerType == "file")
     {
@@ -272,13 +275,14 @@ std::optional<std::vector<std::uint8_t>> BuildData(const IniSection& section, co
             return std::nullopt;
         }
         bytes = std::vector<std::uint8_t>(std::istreambuf_iterator<char>(file), {});
+        shouldNullTerminate = pointer;
     }
     else
     {
         return std::nullopt;
     }
 
-    if (bytes && (bytes->empty() || bytes->back() != 0x00))
+    if (shouldNullTerminate && bytes && (bytes->empty() || bytes->back() != 0x00))
     {
         bytes->push_back(0x00);
     }
@@ -288,17 +292,17 @@ std::optional<std::vector<std::uint8_t>> BuildData(const IniSection& section, co
 
 bool ApplyPatch(const IniSection& section, const PatchContext& context, std::string& failureReason)
 {
-    const auto data = BuildData(section, context);
+    const auto rawValue = GetValue(section, "Raw");
+    const auto pointerValue = GetValue(section, "Pointer");
+    const bool raw = rawValue ? ParseBool(*rawValue) : false;
+    const bool pointer = pointerValue ? ParseBool(*pointerValue) : false;
+
+    const auto data = BuildData(section, context, pointer);
     if (!data || data->empty())
     {
         failureReason = "missing or invalid Type/Data";
         return false;
     }
-
-    const auto rawValue = GetValue(section, "Raw");
-    const auto pointerValue = GetValue(section, "Pointer");
-    const bool raw = rawValue ? ParseBool(*rawValue) : false;
-    const bool pointer = pointerValue ? ParseBool(*pointerValue) : false;
     std::vector<std::string> offsets;
 
     auto offsetValue = GetValue(section, "Offsets");
