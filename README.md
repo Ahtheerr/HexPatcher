@@ -20,7 +20,7 @@ Rename the built DLL to the desired `.asi` filename before using it with an ASI 
 
 ## Requirements
 
-HexPatcher must be loaded as an ASI. Install Ultimate ASI Loader, or another compatible ASI loader, for the target application. Place the renamed `.asi` file in the folder expected by that loader.
+HexPatcher must be loaded as an ASI. Install [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader), or another compatible ASI loader, for the target application. Place the renamed `.asi` file in the folder expected by that loader.
 
 ## INI File Naming
 
