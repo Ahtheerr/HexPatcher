@@ -1,6 +1,6 @@
 # HexPatcher
 
-HexPatcher is a Windows DLL/ASI memory patcher that applies patches to the loaded executable from a matching INI file. It is intended for runtime patching of strings, raw bytes, and file-backed data.
+HexPatcher is a Windows ASI memory patcher that applies patches to the loaded executable from a matching INI file. It must be loaded as an ASI through Ultimate ASI Loader or another compatible ASI loader.
 
 ## Build
 
@@ -16,15 +16,19 @@ The Release DLL is written to:
 x64/Release/HexPatcher.dll
 ```
 
-If using it as an ASI, rename the built DLL to the desired `.asi` filename.
+Rename the built DLL to the desired `.asi` filename before using it with an ASI loader.
+
+## Requirements
+
+HexPatcher must be loaded as an ASI. Install Ultimate ASI Loader, or another compatible ASI loader, for the target application. Place the renamed `.asi` file in the folder expected by that loader.
 
 ## INI File Naming
 
-The INI file must use the same base name as the loaded DLL or ASI and must be placed in the same folder.
+The INI file must use the same base name as the loaded ASI and must be placed in the same folder.
 
 ```text
 MyPatch.asi -> MyPatch.ini
-HexPatcher.dll -> HexPatcher.ini
+PersonaPatch.asi -> PersonaPatch.ini
 ```
 
 The DLL writes a simple log beside itself:
