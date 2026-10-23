@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -23,6 +24,7 @@ struct IniSection
 {
     std::string name;
     std::vector<std::pair<std::string, std::string>> values;
+    std::filesystem::path sourcePath;
 };
 
 struct VersionRule
@@ -35,7 +37,6 @@ struct VersionRule
 struct PatchContext
 {
     HMODULE exeBase = nullptr;
-    std::filesystem::path iniDirectory;
     std::filesystem::path logPath;
     std::map<std::string, std::vector<std::uint8_t>> font;
     std::optional<std::string> version;
@@ -45,6 +46,7 @@ struct PatchContext
 struct PatchReport
 {
     size_t applied = 0;
+    std::vector<std::string> loadedFiles;
     std::vector<std::string> failures;
 };
 
@@ -151,7 +153,7 @@ std::vector<IniSection> ParseIni(const std::filesystem::path& path)
 
         if (line.front() == '[' && line.back() == ']')
         {
-            sections.push_back({ Trim(line.substr(1, line.size() - 2)), {} });
+            sections.push_back({ Trim(line.substr(1, line.size() - 2)), {}, path });
             current = &sections.back();
             continue;
         }
@@ -269,7 +271,7 @@ std::optional<std::vector<std::uint8_t>> BuildData(const IniSection& section, co
     }
     else if (lowerType == "file")
     {
-        std::ifstream file(context.iniDirectory / *data, std::ios::binary);
+        std::ifstream file(section.sourcePath.parent_path() / *data, std::ios::binary);
         if (!file)
         {
             return std::nullopt;
@@ -379,6 +381,11 @@ void WriteLog(const PatchContext& context, const PatchReport& report, double ela
 
     log << "Patches applied: " << report.applied << '\n';
     log << "Load time: " << elapsedMilliseconds << " ms\n";
+    log << "Loaded files: " << report.loadedFiles.size() << '\n';
+    for (const auto& file : report.loadedFiles)
+    {
+        log << "- " << file << '\n';
+    }
     log << "Failed patches: " << report.failures.size() << '\n';
 
     for (const auto& failure : report.failures)
@@ -417,7 +424,7 @@ void ApplyPatches(const std::vector<IniSection>& sections, const PatchContext& c
         }
         else
         {
-            report.failures.push_back(PatchName(section) + ": " + failureReason);
+            report.failures.push_back(section.sourcePath.filename().string() + ": " + PatchName(section) + ": " + failureReason);
         }
     }
 }
@@ -506,50 +513,138 @@ void ParseFont(const IniSection& section, PatchContext& context)
     }
 }
 
-std::filesystem::path FindIniPath(HMODULE dllModule)
+bool HasIniExtension(const std::filesystem::path& path)
 {
-    return GetModuleSidecarPath(dllModule, L".ini");
+    return EqualsIgnoreCase(path.extension().string(), ".ini");
+}
+
+bool HasPrefixIgnoreCase(const std::wstring& value, const std::wstring& prefix)
+{
+    return value.size() >= prefix.size() && _wcsnicmp(value.c_str(), prefix.c_str(), prefix.size()) == 0;
+}
+
+void SortIniPaths(std::vector<std::filesystem::path>& paths)
+{
+    std::sort(paths.begin(), paths.end(), [](const auto& left, const auto& right) {
+        return _wcsicmp(left.filename().c_str(), right.filename().c_str()) < 0;
+    });
+}
+
+std::vector<std::filesystem::path> FindIniPaths(HMODULE dllModule)
+{
+    wchar_t dllPath[MAX_PATH] = {};
+    GetModuleFileNameW(dllModule, dllPath, MAX_PATH);
+
+    const auto modulePath = std::filesystem::path(dllPath);
+    const auto directory = modulePath.parent_path();
+    const auto baseName = modulePath.stem().wstring();
+    const auto exactIni = directory / (baseName + L".ini");
+    const auto groupedDirectory = directory / baseName;
+    const auto prefixedName = baseName + L"_";
+    std::vector<std::filesystem::path> groupedInis;
+    std::vector<std::filesystem::path> prefixedInis;
+
+    std::error_code error;
+    if (std::filesystem::is_directory(groupedDirectory, error))
+    {
+        for (const auto& entry : std::filesystem::directory_iterator(groupedDirectory, std::filesystem::directory_options::skip_permission_denied, error))
+        {
+            if (!error && entry.is_regular_file(error) && HasIniExtension(entry.path()))
+            {
+                groupedInis.push_back(entry.path());
+            }
+            error.clear();
+        }
+    }
+
+    error.clear();
+    for (const auto& entry : std::filesystem::directory_iterator(directory, std::filesystem::directory_options::skip_permission_denied, error))
+    {
+        if (!error && entry.is_regular_file(error) && HasIniExtension(entry.path()) &&
+            HasPrefixIgnoreCase(entry.path().stem().wstring(), prefixedName))
+        {
+            prefixedInis.push_back(entry.path());
+        }
+        error.clear();
+    }
+
+    SortIniPaths(groupedInis);
+    SortIniPaths(prefixedInis);
+
+    std::vector<std::filesystem::path> paths;
+    paths.insert(paths.end(), groupedInis.begin(), groupedInis.end());
+    paths.insert(paths.end(), prefixedInis.begin(), prefixedInis.end());
+    if (std::filesystem::is_regular_file(exactIni, error))
+    {
+        paths.push_back(exactIni);
+    }
+    return paths;
+}
+
+IniSection MergeSpecialSections(const std::vector<IniSection>& sections, std::string_view name)
+{
+    IniSection merged;
+    merged.name = std::string(name);
+
+    for (const auto& section : sections)
+    {
+        if (!EqualsIgnoreCase(section.name, name))
+        {
+            continue;
+        }
+
+        for (const auto& [key, value] : section.values)
+        {
+            auto existing = std::find_if(merged.values.begin(), merged.values.end(), [&](const auto& item) {
+                return EqualsIgnoreCase(item.first, key);
+            });
+            if (existing == merged.values.end())
+            {
+                merged.values.emplace_back(key, value);
+            }
+            else
+            {
+                existing->second = value;
+            }
+        }
+    }
+
+    return merged;
 }
 
 DWORD WINAPI PatchThread(LPVOID parameter)
 {
     const auto start = std::chrono::steady_clock::now();
     const auto dllModule = static_cast<HMODULE>(parameter);
-    const auto iniPath = FindIniPath(dllModule);
+    const auto iniPaths = FindIniPaths(dllModule);
     PatchReport report;
     PatchContext context;
     context.exeBase = GetModuleHandleW(nullptr);
-    context.iniDirectory = iniPath.parent_path();
     context.logPath = GetModuleSidecarPath(dllModule, L".log");
 
-    if (!std::filesystem::exists(iniPath))
+    if (iniPaths.empty())
     {
-        report.failures.push_back("INI file not found: " + iniPath.filename().string());
+        report.failures.push_back("No matching INI files found");
         const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         WriteLog(context, report, elapsed);
         return 0;
     }
 
-    auto sections = ParseIni(iniPath);
-    for (const auto& section : sections)
+    std::vector<IniSection> sections;
+    for (const auto& iniPath : iniPaths)
     {
-        if (EqualsIgnoreCase(section.name, "Font"))
-        {
-            ParseFont(section, context);
-        }
+        auto parsed = ParseIni(iniPath);
+        report.loadedFiles.push_back(iniPath.filename().string());
+        sections.insert(sections.end(), std::make_move_iterator(parsed.begin()), std::make_move_iterator(parsed.end()));
     }
 
-    for (const auto& section : sections)
+    ParseFont(MergeSpecialSections(sections, "Font"), context);
+
+    const auto versionSection = MergeSpecialSections(sections, "Different_Versions");
+    auto rule = ParseVersionRule(versionSection);
+    if (rule)
     {
-        if (EqualsIgnoreCase(section.name, "Different_Versions"))
-        {
-            auto rule = ParseVersionRule(section);
-            if (rule)
-            {
-                SetDetectedVersion(*rule, context);
-            }
-            break;
-        }
+        SetDetectedVersion(*rule, context);
     }
 
     ApplyPatches(sections, context, report);

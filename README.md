@@ -22,16 +22,30 @@ Rename the built DLL to the desired `.asi` filename before using it with an ASI 
 
 HexPatcher must be loaded as an ASI. Install [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader), or another compatible ASI loader, for the target application. Place the renamed `.asi` file in the folder expected by that loader.
 
-## INI File Naming
+## INI File Layout
 
-The INI file must use the same base name as the loaded ASI and must be placed in the same folder.
+HexPatcher loads every matching INI file below. Replace `MyPatch` with the ASI filename without its `.asi` extension.
 
 ```text
-MyPatch.asi -> MyPatch.ini
-PersonaPatch.asi -> PersonaPatch.ini
+MyPatch.asi
+MyPatch.ini
+MyPatch_Characters.ini
+MyPatch_UI.ini
+MyPatch\Common.ini
+MyPatch\Cutscenes.ini
 ```
 
-The DLL writes a simple log beside itself:
+The exact-name INI is optional when one of the other matching INIs exists. Files are loaded in this order, from lowest to highest priority:
+
+1. `MyPatch\*.ini`, alphabetically.
+2. `MyPatch_*.ini`, alphabetically.
+3. `MyPatch.ini`.
+
+All normal patch sections from every matching file are applied. When multiple files patch the same bytes, later files in this order write last.
+
+`[Font]` and `[Different_Versions]` may appear in any matching INI. Their values are merged using the same priority order: conflicting keys in `MyPatch.ini` win, then keys in `MyPatch_*.ini`, then keys from the `MyPatch` folder. This lets shared files provide defaults while the main INI overrides them.
+
+The ASI writes a simple log beside itself:
 
 ```text
 MyPatch.asi -> MyPatch.log
@@ -147,6 +161,9 @@ The log reports the patch count, load time, and failed entries:
 ```text
 Patches applied: 123
 Load time: 4.25 ms
+Loaded files: 2
+- MyPatch_Base.ini
+- MyPatch.ini
 Failed patches: 1
-- PatchName: no matching Offsets
+- MyPatch.ini: PatchName: no matching Offsets
 ```
